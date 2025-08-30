@@ -1,5 +1,6 @@
 package com.namekart.NotesApp.config;
 
+import com.namekart.NotesApp.entity.User;
 import com.namekart.NotesApp.repository.UserRepository;
 import com.namekart.NotesApp.utils.JwtUtil;
 import jakarta.servlet.FilterChain;
@@ -41,8 +42,8 @@ public class SecurityConfig {
         http.csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/**").permitAll()
-                        .anyRequest().authenticated()
+                        .requestMatchers("/api/auth/**").permitAll() // allow register & login
+                        .anyRequest().authenticated()               // everything else requires auth
                 )
                 .addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
 
@@ -56,18 +57,31 @@ public class SecurityConfig {
             protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
                     throws ServletException, IOException {
 
+                String path = request.getRequestURI();
+
+                // ✅ Skip JWT validation for authentication endpoints
+                if (path.startsWith("/api/auth")) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
                 String authHeader = request.getHeader("Authorization");
                 if (authHeader != null && authHeader.startsWith("Bearer ")) {
                     String token = authHeader.substring(7);
+
                     if (jwtUtil.isTokenValid(token)) {
                         String username = jwtUtil.getUsernameFromToken(token);
-                        if (userRepository.findByUsername(username).isPresent()) {
+
+                        userRepository.findByUsername(username).ifPresent(user -> {
+                            // ✅ Store the whole User entity as principal
                             UsernamePasswordAuthenticationToken auth =
-                                    new UsernamePasswordAuthenticationToken(username, null, new ArrayList<>());
+                                    new UsernamePasswordAuthenticationToken(
+                                            user, null, new ArrayList<>());
                             SecurityContextHolder.getContext().setAuthentication(auth);
-                        }
+                        });
                     }
                 }
+
                 filterChain.doFilter(request, response);
             }
         };
